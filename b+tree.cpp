@@ -24,6 +24,16 @@ public:
     void splitChild(int ind, BPlusNode* y);
     void traverse();
     BPlusNode* search(T k);
+    int findKey(T k);
+    void remove(T k);
+    void removeFromLeaf(int idx);
+    void removeFromNonLeaf(int idx);
+    T getPred(int idx);
+    T getSucc(int idx);
+    void fill(int idx);
+    void borrowFromPrev(int idx);
+    void borrowFromNext(int idx);
+    void merge(int idx);
 
     friend class BPlusTree<T>;
 };
@@ -227,6 +237,14 @@ void BPlusTree<T>::remove(T k) {
 }
 
 template <typename T>
+int BPlusNode<T>::findKey(T k) { 
+    int idx = 0;
+    while (idx < n && keys[idx] < k)
+        ++idx;
+    return idx;
+}
+
+template <typename T>
 void BPlusNode<T>::remove(T k) {
     int idx = findKey(k);
     if (idx < n && keys[idx] == k) {
@@ -267,33 +285,153 @@ void BPlusNode<T>::removeFromLeaf(int idx) {
     return;
 }
 
+
 template <typename T>
 void BPlusNode<T>::removeFromNonLeaf(int idx) {
     T k = keys[idx];
 
+ // Si el hijo en la posición idx tiene al menos t claves, encuentra el predecesor de la clave y elimina recursivamente el predecesor
     if (C[idx]->n >= t) {
-        BPlusNode<T>* cur = C[idx];
-        while (!cur->leaf)
-            cur = cur->C[cur->n];
-
-        // Swap k and pred
-        keys[idx] = cur->keys[cur->n - 1];
-        C[idx]->remove(cur->keys[cur->n - 1]);
+        T pred = getPred(idx);
+        keys[idx] = pred;
+        C[idx]->remove(pred);
     }
 
+    // Si el hijo en la posición idx tiene menos de t claves, entonces encuentra el sucesor en el subárbol derecho y elimina recursivamente el sucesor
     else if (C[idx + 1]->n >= t) {
-        BPlusNode<T>* cur = C[idx + 1];
-        while (!cur->leaf)
-            cur = cur->C[0];
-
-        // Swap k and succ
-        keys[idx] = cur->keys[0];
-        C[idx + 1]->remove(cur->keys[0]);
+        T succ = getSucc(idx);
+        keys[idx] = succ;
+        C[idx + 1]->remove(succ);
     }
 
+    // If both the child at idx and the child after idx has less than t keys,
+    // merge them.
     else {
         merge(idx);
         C[idx]->remove(k);
     }
     return;
 }
+
+template <typename T>
+T BPlusNode<T>::getPred(int idx) {
+    // Keep moving to the right most node hasta llegar a una hoja
+    BPlusNode<T> * cur = C[idx];
+    while (!cur->leaf)
+        cur = cur->C[cur->n];
+
+    // Return the last key of the leaf
+    return cur->keys[cur->n - 1];
+}
+
+template <typename T>
+T BPlusNode<T>::getSucc(int idx) {
+    // Keep moving the left most node starting from C[idx+1] hasta llegar a una hoja tmb ga
+    BPlusNode<T>* cur = C[idx + 1];
+    while (!cur->leaf)
+        cur = cur->C[0];
+
+    return cur->keys[0];
+}
+
+template <typename T>
+void BPlusNode<T>::fill(int idx) {
+    if (idx != 0 && C[idx - 1]->n >= t)
+        borrowFromPrev(idx);
+    else if (idx != n && C[idx + 1]->n >= t)
+        borrowFromNext(idx);
+    else {
+        if (idx != n)
+            merge(idx);
+        else
+            merge(idx - 1);
+    }
+    return;
+}
+
+template <typename T>
+void BPlusNode<T>::borrowFromPrev(int idx) {
+    BPlusNode<T>* child = C[idx]; // Hijo
+    BPlusNode<T>* sibling = C[idx - 1]; // Hermano previo
+
+    // Movemos todas las claves del hijo una posición adelante, para hacer espacio para la clave del nodo
+    for (int i = child->n - 1; i >= 0; --i)
+        child->keys[i + 1] = child->keys[i];
+
+    // Mover hijos del hijo una posición adelante
+    if (!child->leaf) {
+        for (int i = child->n; i >= 0; --i)
+            child->C[i + 1] = child->C[i];
+    }
+
+    // Copiamos la key del nodo al hijo
+    child->keys[0] = keys[idx - 1];
+
+    if (!leaf)
+        child->C[0] = sibling->C[sibling->n];
+
+    keys[idx - 1] = sibling->keys[sibling->n - 1];
+
+    // Actualizar conteo del num de keys
+    child->n += 1;
+    sibling->n -= 1;
+
+    return;
+}
+
+template <typename T>
+void BPlusNode<T>::borrowFromNext(int idx) {
+    // Lo mismo que borrowFromPrev, pero con el hermano siguiente
+    BPlusNode<T>* child = C[idx];
+    BPlusNode<T>* sibling = C[idx + 1];
+
+    child->keys[(child->n)] = keys[idx];
+
+    if (!(child->leaf))
+        child->C[(child->n) + 1] = sibling->C[0]; 
+
+    keys[idx] = sibling->keys[0];
+
+    for (int i = 1; i < sibling->n; ++i)
+        sibling->keys[i - 1] = sibling->keys[i];
+
+    if (!sibling->leaf) {
+        for (int i = 1; i <= sibling->n; ++i)
+            sibling->C[i - 1] = sibling->C[i];
+    }
+
+    child->n += 1;
+    sibling->n -= 1;
+
+    return;
+}
+
+template <typename T>
+void BPlusNode<T>::merge(int idx) { // Merge idx-th child of the node with (idx+1)-th child of the node
+    BPlusNode<T>* child = C[idx];
+    BPlusNode<T>* sibling = C[idx + 1];
+
+    child->keys[t - 1] = keys[idx];
+
+    for (int i = 0; i < sibling->n; ++i)
+        child->keys[i + t] = sibling->keys[i];
+
+    if (!child->leaf) {
+        for (int i = 0; i <= sibling->n; ++i)
+            child->C[i + t] = sibling->C[i];
+    }
+
+    for (int i = idx + 1; i < n; ++i)
+        keys[i - 1] = keys[i];
+
+    for (int i = idx + 2; i <= n; ++i)
+        C[i - 1] = C[i];
+
+    child->n += sibling->n + 1;
+    n--;
+
+    delete(sibling);
+    return;
+}
+
+
