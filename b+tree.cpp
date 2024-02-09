@@ -275,12 +275,18 @@ void BPlusNode<T>::remove(T k) {
 
 template <typename T>
 void BPlusNode<T>::removeFromLeaf(int idx) {
-    // Move all other keys one step behind
+    // Move all the keys after the idx-th position one place backward
     for (int i = idx + 1; i < n; ++i)
         keys[i - 1] = keys[i];
 
     // Reduce the count of keys
     n--;
+
+    // If this is a leaf node, update the next pointers, 
+    if (leaf && idx < n) {
+        BPlusNode<T>* nextNode = C[idx + 1];
+        C[idx] = nextNode;
+    }
 
     return;
 }
@@ -407,7 +413,7 @@ void BPlusNode<T>::borrowFromNext(int idx) {
 }
 
 template <typename T>
-void BPlusNode<T>::merge(int idx) { // Merge idx-th child of the node with (idx+1)-th child of the node
+void BPlusNode<T>::merge(int idx) {
     BPlusNode<T>* child = C[idx];
     BPlusNode<T>* sibling = C[idx + 1];
 
@@ -419,6 +425,11 @@ void BPlusNode<T>::merge(int idx) { // Merge idx-th child of the node with (idx+
     if (!child->leaf) {
         for (int i = 0; i <= sibling->n; ++i)
             child->C[i + t] = sibling->C[i];
+    }
+
+    // Copy the next pointer from the sibling to the child
+    if (child->leaf) {
+        child->C[child->n + sibling->n] = sibling->C[sibling->n];
     }
 
     for (int i = idx + 1; i < n; ++i)
@@ -433,5 +444,6 @@ void BPlusNode<T>::merge(int idx) { // Merge idx-th child of the node with (idx+
     delete(sibling);
     return;
 }
+
 
 
